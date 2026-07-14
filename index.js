@@ -73,6 +73,22 @@ async function saveProjectsDb(projects) {
   await writeFile(PROJECTS_DB_PATH, JSON.stringify(projects, null, 2), "utf8");
 }
 
+async function getProjectsForAccount(accountId) {
+  const entries = await loadProjectsDb();
+  const entry = entries.find((item) => item.accountId === accountId);
+  return entry?.projects || [];
+}
+
+async function saveProjectsForAccount(accountId, projects) {
+  const entries = await loadProjectsDb();
+  const index = entries.findIndex((item) => item.accountId === accountId);
+  const nextEntry = { accountId, projects };
+  if (index === -1) entries.push(nextEntry);
+  else entries[index] = nextEntry;
+  await saveProjectsDb(entries);
+  return nextEntry;
+}
+
 function toPublicAccount(account) {
   const { password, ...publicAccount } = account;
   return publicAccount;
@@ -359,25 +375,29 @@ app.get("/api/auth/presence", async (req, res) => {
 // PROJECTS ENDPOINTS
 // ──────────────────────────────────────────────────────────────────────────────
 
-// GET /api/projects — получение проектов
-app.get("/api/projects", async (_req, res) => {
+// GET /api/projects — получение проектов аккаунта
+app.get("/api/projects", async (req, res) => {
   try {
-    const projects = await loadProjectsDb();
+    const accountId = String(req.query.accountId || "").trim();
+    if (!accountId) {
+      return res.json({ projects: [] });
+    }
+    const projects = await getProjectsForAccount(accountId);
     res.json({ projects });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
 });
 
-// POST /api/projects — сохранение проектов
+// POST /api/projects — сохранение проектов аккаунта
 app.post("/api/projects", async (req, res) => {
   try {
-    const { projects } = req.body;
-    if (!Array.isArray(projects)) {
-      return res.status(400).json({ error: "Ожидается массив projects." });
+    const { accountId, projects } = req.body;
+    if (!accountId || !Array.isArray(projects)) {
+      return res.status(400).json({ error: "Ожидаются accountId и массив projects." });
     }
-    await saveProjectsDb(projects);
-    res.json({ ok: true, count: projects.length });
+    await saveProjectsForAccount(accountId, projects);
+    res.json({ ok: true, count: projects.length, accountId });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
