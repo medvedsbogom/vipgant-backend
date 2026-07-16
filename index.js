@@ -112,6 +112,7 @@ app.use(cors({
     "https://vipgant.ru",
     "http://localhost:5173",
     "http://localhost:4173",
+    "https://vipgant-backend-production.up.railway.app",
   ],
   credentials: true,
 }));
