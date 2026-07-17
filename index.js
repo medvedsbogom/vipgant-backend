@@ -2,12 +2,14 @@ import express from "express";
 import cors from "cors";
 import { readFile, writeFile, mkdir } from "node:fs/promises";
 import { existsSync } from "node:fs";
-import { dirname, resolve } from "node:path";
+import { dirname, resolve, join } from "node:path";
 import { randomUUID } from "node:crypto";
 import { fileURLToPath } from "node:url";
+import { existsSync, statSync } from "node:fs";
 
 // ── Paths ─────────────────────────────────────────────────────────────────────
 const __dirname = dirname(fileURLToPath(import.meta.url));
+const PROJECT_ROOT = resolve(__dirname, "..");
 const DATA_DIR = resolve(__dirname, "data");
 const AUTH_DB_PATH = resolve(DATA_DIR, "auth-db.json");
 const PROJECTS_DB_PATH = resolve(DATA_DIR, "projects-db.json");
@@ -106,18 +108,25 @@ function prunePresence(now = Date.now()) {
 const app = express();
 const PORT = process.env.PORT || 3000;
 
-// CORS: разрешаем запросы с вашего домена
+// CORS: разрешаем запросы с домена и localhost
 app.use(cors({
   origin: [
     "https://vipgant.ru",
     "http://localhost:5173",
     "http://localhost:4173",
+    "http://localhost:3000",
     "https://vipgant-backend-production.up.railway.app",
   ],
   credentials: true,
 }));
 
 app.use(express.json({ limit: "10mb" }));
+
+// Serve built frontend from the same server in production-style deployment
+const distDir = join(PROJECT_ROOT, "dist");
+if (existsSync(distDir) && statSync(distDir).isDirectory()) {
+  app.use(express.static(distDir));
+}
 
 // ──────────────────────────────────────────────────────────────────────────────
 // AUTH ENDPOINTS
@@ -414,5 +423,9 @@ app.listen(PORT, () => {
 
 // Health check
 app.get("/", (_req, res) => {
+  if (existsSync(distDir) && statSync(distDir).isDirectory()) {
+    res.sendFile(resolve(distDir, "index.html"));
+    return;
+  }
   res.json({ status: "ok", uptime: process.uptime() });
 });
