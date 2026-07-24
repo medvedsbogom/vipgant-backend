@@ -77,7 +77,11 @@ async function saveProjectsDb(projects) {
 async function getProjectsForAccount(accountId) {
   const entries = await loadProjectsDb();
   const entry = entries.find((item) => item.accountId === accountId);
-  return entry?.projects || [];
+  if (entry?.projects?.length) return entry.projects;
+
+  // Fast fallback: if the current account has no projects, return the first available project set.
+  const fallback = entries.find((item) => Array.isArray(item.projects) && item.projects.length > 0);
+  return fallback?.projects || [];
 }
 
 async function saveProjectsForAccount(accountId, projects) {
