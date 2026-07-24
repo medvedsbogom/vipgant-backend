@@ -1,0 +1,38 @@
+[
+  {
+    "id": "df246cf4-02d5-48a3-9d57-683ebde6793f",
+    "name": "Михаил Бережной",
+    "email": "medvedsbogom@gmail.com",
+    "password": "Gagakaty27.",
+    "initials": "МБ",
+    "color": "#c30de7",
+    "themeColor": "#c30de7",
+    "photoUrl": "",
+    "birthYear": 1992,
+    "birthDate": "1992-09-01",
+    "phone": "",
+    "city": "Влг",
+    "about": "Я писька",
+    "role": "Создатель",
+    "lastLoginClientId": "9b3d9e63-d18b-4f2b-bb57-97e9c8b21c1b",
+    "lastLoginIp": "::1"
+  },
+  {
+    "id": "94138fd5-9dae-4cfe-9168-63c89771d260",
+    "name": "Алексей",
+    "email": "rembrand.remont@yandex.ru",
+    "password": "Gant2026!",
+    "initials": "А",
+    "color": "#34a853",
+    "themeColor": "#1271e0",
+    "photoUrl": "",
+    "birthYear": null,
+    "birthDate": "",
+    "phone": "",
+    "city": "",
+    "about": "",
+    "lastLoginClientId": "6b0da37e-a576-4574-986d-b35619906505",
+    "lastLoginIp": "95.25.33.7",
+    "role": "Редактор"
+  }
+]
