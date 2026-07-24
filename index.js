@@ -232,13 +232,15 @@ app.post("/api/auth/profile", async (req, res) => {
       return res.status(404).json({ error: "Пользователь не найден." });
     }
 
+    const nextThemeColor = themeColor !== undefined ? themeColor : (accounts[index].themeColor || accounts[index].color);
+    const nextPhotoUrl = photoUrl !== undefined ? photoUrl : (accounts[index].photoUrl || "");
     accounts[index] = {
       ...accounts[index],
       name: name.trim(),
       initials: makeInitials(name),
-      color: themeColor || accounts[index].color,
-      themeColor: themeColor || accounts[index].themeColor || accounts[index].color,
-      photoUrl: photoUrl || accounts[index].photoUrl || "",
+      color: nextThemeColor,
+      themeColor: nextThemeColor,
+      photoUrl: nextPhotoUrl,
       birthYear: birthYear != null ? birthYear : accounts[index].birthYear,
       birthDate: birthDate || accounts[index].birthDate || "",
       phone: phone || accounts[index].phone || "",
