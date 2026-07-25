@@ -81,12 +81,7 @@ async function getProjectsForAccount(accountId) {
 
   // Fast fallback: if the current account has no projects, return the first available project set.
   const fallback = entries.find((item) => Array.isArray(item.projects) && item.projects.length > 0);
-  if (fallback?.projects?.length) {
-    // Also save a copy for this account so they don't have to fetch every time
-    await saveProjectsForAccount(accountId, fallback.projects);
-    return fallback.projects;
-  }
-  return [];
+  return fallback?.projects || [];
 }
 
 async function saveProjectsForAccount(accountId, projects) {
@@ -407,16 +402,12 @@ app.get("/api/auth/presence", async (req, res) => {
 app.get("/api/projects", async (req, res) => {
   try {
     const accountId = String(req.query.accountId || "").trim();
-    console.log(`📊 GET /api/projects?accountId=${accountId}`);
     if (!accountId) {
-      console.log(`   ⚠️  Empty accountId, returning []`);
       return res.json({ projects: [] });
     }
     const projects = await getProjectsForAccount(accountId);
-    console.log(`   ✅ Returning ${projects.length} projects:`, projects.map(p => ({ id: p.id, name: p.name })));
     res.json({ projects });
   } catch (err) {
-    console.log(`   ❌ Error:`, err.message);
     res.status(500).json({ error: err.message });
   }
 });
