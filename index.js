@@ -131,8 +131,16 @@ app.use(cors({
 app.use(express.json({ limit: "10mb" }));
 
 // Serve built frontend from the same server in production-style deployment
-const distDir = join(PROJECT_ROOT, "dist");
-if (existsSync(distDir) && statSync(distDir).isDirectory()) {
+const distCandidates = [join(PROJECT_ROOT, "server", "dist"), join(PROJECT_ROOT, "dist")];
+let distDir = null;
+for (const candidate of distCandidates) {
+  if (existsSync(candidate) && statSync(candidate).isDirectory()) {
+    distDir = candidate;
+    break;
+  }
+}
+if (distDir) {
+  console.log(`🔸 Serving static from ${distDir}`);
   app.use(express.static(distDir));
 }
 
@@ -437,7 +445,7 @@ app.listen(PORT, () => {
 
 // Health check
 app.get("/", (_req, res) => {
-  if (existsSync(distDir) && statSync(distDir).isDirectory()) {
+  if (distDir) {
     res.sendFile(resolve(distDir, "index.html"));
     return;
   }
