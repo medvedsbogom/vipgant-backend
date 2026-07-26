@@ -1,6 +1,6 @@
 import express from "express";
 import cors from "cors";
-import { readFile, writeFile, mkdir } from "node:fs/promises";
+import { readFile, writeFile, mkdir, readdir } from "node:fs/promises";
 import { existsSync, statSync } from "node:fs";
 import { dirname, resolve, join } from "node:path";
 import { randomUUID } from "node:crypto";
@@ -74,14 +74,85 @@ async function saveProjectsDb(projects) {
   await writeFile(PROJECTS_DB_PATH, JSON.stringify(projects, null, 2), "utf8");
 }
 
+async function loadProjectsFromDataFiles() {
+  const files = [];
+  try {
+    const entries = await readdir(resolve(PROJECT_ROOT, "data"), { withFileTypes: true });
+    for (const entry of entries) {
+      if (entry.isFile() && entry.name.toLowerCase().endsWith(".json")) {
+        files.push(entry.name);
+      }
+    }
+  } catch {
+    return [];
+  }
+
+  const projects = [];
+  for (const file of files) {
+    const path = resolve(PROJECT_ROOT, "data", file);
+    try {
+      const raw = await readFile(path, "utf8");
+      const parsed = JSON.parse(raw);
+      const projectRoot = parsed.Project || parsed["?xml"]?.Project;
+      const name = file.replace(/\.json$/i, "").replace(/_/g, " ").trim();
+      if (!projectRoot || typeof projectRoot !== "object") continue;
+      const tasksRaw = projectRoot.Tasks?.Task;
+      if (!Array.isArray(tasksRaw) && typeof tasksRaw !== "object") continue;
+      const tasksArray = Array.isArray(tasksRaw) ? tasksRaw : [tasksRaw];
+      const convertedTasks = tasksArray.map((task, index) => {
+        const start = task.Start ? task.Start.split("T")[0] : null;
+        const end = task.Finish ? task.Finish.split("T")[0] : start;
+        const percent = Number(task.PercentComplete ?? task.PercentDone ?? 0);
+        const progress = Math.max(0, Math.min(1, percent / 100));
+        const status = progress >= 1 ? "completed" : progress > 0 ? "on_track" : "not_started";
+        return {
+          id: index + 1,
+          parentId: undefined,
+          type: task.Milestone === "1" || task.Milestone === 1 ? "milestone" : task.Summary === "1" || task.Summary === 1 ? "group" : "task",
+          name: String(task.Name || task.Title || "Без названия").trim(),
+          assignees: [],
+          resourceIds: [],
+          priority: "medium",
+          budget: 0,
+          comments: "",
+          attachments: [],
+          start: start || "1970-01-01",
+          end: end || "1970-01-01",
+          progress,
+          status,
+          barColor: status === "completed" ? "#34a853" : status === "on_track" ? "#1271e0" : "#8b9ab0",
+          indent: 0,
+        };
+      });
+      if (convertedTasks.length > 0) {
+        projects.push({
+          id: `proj-${name.replace(/[^a-z0-9]+/gi, "-").replace(/^-+|-+$/g, "").toLowerCase()}`,
+          name,
+          scale: "week",
+          visualScale: 1,
+          tasks: convertedTasks,
+          dependencies: [],
+          resources: [],
+          templates: [],
+          archived: false,
+        });
+      }
+    } catch {
+      continue;
+    }
+  }
+  return projects;
+}
+
 async function getProjectsForAccount(accountId) {
   const entries = await loadProjectsDb();
   const entry = entries.find((item) => item.accountId === accountId);
   if (entry?.projects?.length) return entry.projects;
 
-  // Fast fallback: if the current account has no projects, return the first available project set.
   const fallback = entries.find((item) => Array.isArray(item.projects) && item.projects.length > 0);
-  return fallback?.projects || [];
+  if (fallback?.projects?.length) return fallback.projects;
+
+  return await loadProjectsFromDataFiles();
 }
 
 async function saveProjectsForAccount(accountId, projects) {
@@ -126,7 +197,7 @@ app.use(cors({
 app.use(express.json({ limit: "10mb" }));
 
 // Serve built frontend from the same server in production-style deployment
-const distCandidates = [join(PROJECT_ROOT, "server", "dist"), join(PROJECT_ROOT, "dist")];
+const distCandidates = [join(PROJECT_ROOT, "dist"), join(PROJECT_ROOT, "server", "dist")];
 let distDir = null;
 for (const candidate of distCandidates) {
   if (existsSync(candidate) && statSync(candidate).isDirectory()) {
