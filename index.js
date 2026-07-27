@@ -513,9 +513,18 @@ app.post("/api/projects", async (req, res) => {
 // ──────────────────────────────────────────────────────────────────────────────
 // START
 // ──────────────────────────────────────────────────────────────────────────────
-app.listen(PORT, () => {
+const server = app.listen(PORT, () => {
   console.log(`✅ VIP Gantt API server running on port ${PORT}`);
   console.log(`   Health check: http://localhost:${PORT}/`);
+});
+
+server.on("error", (err) => {
+  if (err && typeof err === "object" && "code" in err && err.code === "EADDRINUSE") {
+    console.warn(`⚠️ Port ${PORT} is already in use. Another server instance is already running.`);
+    process.exit(0);
+  }
+  console.error(err);
+  process.exit(1);
 });
 
 // Health check
