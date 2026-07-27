@@ -32,6 +32,10 @@ function makeInitials(name) {
     .slice(0, 2) || "U";
 }
 
+function stripBom(text) {
+  return typeof text === "string" && text.charAt(0) === "\uFEFF" ? text.slice(1) : text;
+}
+
 // ── Helpers ────────────────────────────────────────────────────────────────────
 let presenceRecords = new Map(); // accountId -> { lastSeen, name, initials, ... }
 let presenceEvents = [];
@@ -92,38 +96,40 @@ async function loadProjectsFromDataFiles() {
     const path = resolve(PROJECT_ROOT, "data", file);
     try {
       const raw = await readFile(path, "utf8");
-      const parsed = JSON.parse(raw);
+      const parsed = JSON.parse(stripBom(raw));
       const projectRoot = parsed.Project || parsed["?xml"]?.Project;
       const name = file.replace(/\.json$/i, "").replace(/_/g, " ").trim();
       if (!projectRoot || typeof projectRoot !== "object") continue;
       const tasksRaw = projectRoot.Tasks?.Task;
       if (!Array.isArray(tasksRaw) && typeof tasksRaw !== "object") continue;
       const tasksArray = Array.isArray(tasksRaw) ? tasksRaw : [tasksRaw];
-      const convertedTasks = tasksArray.map((task, index) => {
-        const start = task.Start ? task.Start.split("T")[0] : null;
-        const end = task.Finish ? task.Finish.split("T")[0] : start;
-        const percent = Number(task.PercentComplete ?? task.PercentDone ?? 0);
-        const progress = Math.max(0, Math.min(1, percent / 100));
-        const status = progress >= 1 ? "completed" : progress > 0 ? "on_track" : "not_started";
-        return {
-          id: index + 1,
-          parentId: undefined,
-          type: task.Milestone === "1" || task.Milestone === 1 ? "milestone" : task.Summary === "1" || task.Summary === 1 ? "group" : "task",
-          name: String(task.Name || task.Title || "Без названия").trim(),
-          assignees: [],
-          resourceIds: [],
-          priority: "medium",
-          budget: 0,
-          comments: "",
-          attachments: [],
-          start: start || "1970-01-01",
-          end: end || "1970-01-01",
-          progress,
-          status,
-          barColor: status === "completed" ? "#34a853" : status === "on_track" ? "#1271e0" : "#8b9ab0",
-          indent: 0,
-        };
-      });
+      const convertedTasks = tasksArray
+        .filter((task) => task && typeof task === "object")
+        .map((task, index) => {
+          const start = task.Start ? task.Start.split("T")[0] : null;
+          const end = task.Finish ? task.Finish.split("T")[0] : start;
+          const percent = Number(task.PercentComplete ?? task.PercentDone ?? 0);
+          const progress = Math.max(0, Math.min(1, percent / 100));
+          const status = progress >= 1 ? "completed" : progress > 0 ? "on_track" : "not_started";
+          return {
+            id: index + 1,
+            parentId: undefined,
+            type: task.Milestone === "1" || task.Milestone === 1 ? "milestone" : task.Summary === "1" || task.Summary === 1 ? "group" : "task",
+            name: String(task.Name || task.Title || "Без названия").trim(),
+            assignees: [],
+            resourceIds: [],
+            priority: "medium",
+            budget: 0,
+            comments: "",
+            attachments: [],
+            start: start || "1970-01-01",
+            end: end || "1970-01-01",
+            progress,
+            status,
+            barColor: status === "completed" ? "#34a853" : status === "on_track" ? "#1271e0" : "#8b9ab0",
+            indent: 0,
+          };
+        });
       if (convertedTasks.length > 0) {
         projects.push({
           id: `proj-${name.replace(/[^a-z0-9]+/gi, "-").replace(/^-+|-+$/g, "").toLowerCase()}`,
@@ -141,6 +147,7 @@ async function loadProjectsFromDataFiles() {
       continue;
     }
   }
+
   return projects;
 }
 
@@ -152,7 +159,13 @@ async function getProjectsForAccount(accountId) {
   const fallback = entries.find((item) => Array.isArray(item.projects) && item.projects.length > 0);
   if (fallback?.projects?.length) return fallback.projects;
 
-  return await loadProjectsFromDataFiles();
+  const importedProjects = await loadProjectsFromDataFiles();
+  if (importedProjects.length > 0) {
+    await saveProjectsForAccount(accountId, importedProjects);
+    return importedProjects;
+  }
+
+  return [];
 }
 
 async function saveProjectsForAccount(accountId, projects) {
