@@ -12,6 +12,7 @@ const PROJECT_ROOT = resolve(__dirname, "..");
 const DATA_DIR = resolve(__dirname, "data");
 const AUTH_DB_PATH = resolve(DATA_DIR, "auth-db.json");
 const PROJECTS_DB_PATH = resolve(DATA_DIR, "projects-db.json");
+const PROJECTS_BACKUP_PATH = resolve(DATA_DIR, "projects-db.backup.json");
 
 // ── Types ──────────────────────────────────────────────────────────────────────
 /* Account roles mirroring frontend */
@@ -63,19 +64,34 @@ async function saveAuthDb(accounts) {
 }
 
 async function loadProjectsDb() {
-  if (!existsSync(PROJECTS_DB_PATH)) return [];
-  try {
-    const text = await readFile(PROJECTS_DB_PATH, "utf8");
-    const parsed = JSON.parse(text);
-    return Array.isArray(parsed) ? parsed : [];
-  } catch {
-    return [];
+  const readFromFile = async (filePath) => {
+    if (!existsSync(filePath)) return null;
+    try {
+      const text = await readFile(filePath, "utf8");
+      const parsed = JSON.parse(text);
+      return Array.isArray(parsed) ? parsed : null;
+    } catch {
+      return null;
+    }
+  };
+
+  const primary = await readFromFile(PROJECTS_DB_PATH);
+  if (primary !== null) return primary;
+
+  const backup = await readFromFile(PROJECTS_BACKUP_PATH);
+  if (backup !== null) {
+    await writeFile(PROJECTS_DB_PATH, JSON.stringify(backup, null, 2), "utf8");
+    return backup;
   }
+
+  return [];
 }
 
 async function saveProjectsDb(projects) {
   if (!existsSync(DATA_DIR)) await mkdir(DATA_DIR, { recursive: true });
-  await writeFile(PROJECTS_DB_PATH, JSON.stringify(projects, null, 2), "utf8");
+  const serialized = JSON.stringify(projects, null, 2);
+  await writeFile(PROJECTS_DB_PATH, serialized, "utf8");
+  await writeFile(PROJECTS_BACKUP_PATH, serialized, "utf8");
 }
 
 async function loadProjectsFromDataFiles() {
@@ -171,7 +187,10 @@ async function getProjectsForAccount(accountId) {
 async function saveProjectsForAccount(accountId, projects) {
   const entries = await loadProjectsDb();
   const index = entries.findIndex((item) => item.accountId === accountId);
-  const nextEntry = { accountId, projects };
+  const existingEntry = index >= 0 ? entries[index] : null;
+  const existingProjects = Array.isArray(existingEntry?.projects) ? existingEntry.projects : [];
+  const nextProjects = Array.isArray(projects) && projects.length > 0 ? projects : existingProjects;
+  const nextEntry = { accountId, projects: nextProjects };
   if (index === -1) entries.push(nextEntry);
   else entries[index] = nextEntry;
   await saveProjectsDb(entries);
