@@ -105,23 +105,27 @@ function makeProjectId(name, existingIds) {
 }
 
 function normalizeProjectList(projects, existingIds = new Set()) {
-  const seenKeys = new Set();
+  const seenNames = new Set();
   const normalized = [];
 
   for (const project of Array.isArray(projects) ? projects : []) {
-    const name = String(project?.name || "").trim();
+    const name = String(project?.name || "").trim().normalize("NFC");
     if (!name) continue;
 
-    let id = typeof project.id === "string" && project.id.trim() ? safeProjectId(project.id) : "";
+    const nameKey = name.toLowerCase().replace(/\s+/g, " ");
+    if (seenNames.has(nameKey)) continue;
+    seenNames.add(nameKey);
+
+    const rawId = typeof project.id === "string" ? project.id.trim().normalize("NFC") : "";
+    let id = rawId ? safeProjectId(rawId) : "";
     if (!id) {
       id = makeProjectId(name, existingIds);
-    } else {
+    } else if (existingIds.has(id)) {
       id = makeUniqueProjectId(id, existingIds);
+    } else {
+      existingIds.add(id);
     }
 
-    const key = `${name.toLowerCase()}|${id}`;
-    if (seenKeys.has(key)) continue;
-    seenKeys.add(key);
     normalized.push({ ...project, id, name });
   }
 
@@ -131,12 +135,13 @@ function normalizeProjectList(projects, existingIds = new Set()) {
 function mergeProjectLists(existingProjects, importedProjects) {
   const usedIds = new Set();
   const merged = normalizeProjectList(existingProjects, usedIds);
-  const existingNames = new Set(merged.map((p) => p.name.toLowerCase()));
+  const existingNames = new Set(merged.map((p) => String(p.name || "").trim().toLowerCase().replace(/\s+/g, " ")));
 
   for (const project of normalizeProjectList(importedProjects, usedIds)) {
-    if (!existingNames.has(project.name.toLowerCase())) {
+    const projectNameKey = String(project.name || "").trim().toLowerCase().replace(/\s+/g, " ");
+    if (!existingNames.has(projectNameKey)) {
       merged.push(project);
-      existingNames.add(project.name.toLowerCase());
+      existingNames.add(projectNameKey);
     }
   }
 
