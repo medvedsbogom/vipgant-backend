@@ -63,6 +63,86 @@ async function saveAuthDb(accounts) {
   await writeFile(AUTH_DB_PATH, JSON.stringify(accounts, null, 2), "utf8");
 }
 
+function safeProjectId(rawId) {
+  const normalized = String(rawId || "")
+    .trim()
+    .replace(/\s+/g, "-")
+    .replace(/[^a-zA-Z0-9_-]+/g, "-")
+    .replace(/^-+|-+$/g, "");
+  return normalized || "proj";
+}
+
+function makeUniqueProjectId(baseId, existingIds) {
+  let id = baseId;
+  let suffix = 1;
+  while (existingIds.has(id)) {
+    id = `${baseId}-${suffix++}`;
+  }
+  existingIds.add(id);
+  return id;
+}
+
+const CYRILLIC_TRANSLITERATION = {
+  а: "a", б: "b", в: "v", г: "g", д: "d", е: "e", ё: "yo", ж: "zh", з: "z", и: "i", й: "y", к: "k", л: "l", м: "m", н: "n", о: "o", п: "p", р: "r", с: "s", т: "t", у: "u", ф: "f", х: "h", ц: "ts", ч: "ch", ш: "sh", щ: "shch", ъ: "", ы: "y", ь: "", э: "e", ю: "yu", я: "ya",
+  А: "A", Б: "B", В: "V", Г: "G", Д: "D", Е: "E", Ё: "Yo", Ж: "Zh", З: "Z", И: "I", Й: "Y", К: "K", Л: "L", М: "M", Н: "N", О: "O", П: "P", Р: "R", С: "S", Т: "T", У: "U", Ф: "F", Х: "H", Ц: "Ts", Ч: "Ch", Ш: "Sh", Щ: "Shch", Ы: "Y", Э: "E", Ю: "Yu", Я: "Ya",
+};
+
+function transliterate(name) {
+  return String(name || "")
+    .split("")
+    .map((char) => CYRILLIC_TRANSLITERATION[char] ?? char)
+    .join("");
+}
+
+function makeProjectId(name, existingIds) {
+  const normalized = transliterate(name)
+    .trim()
+    .toLowerCase()
+    .replace(/[\s_]+/g, "-")
+    .replace(/[^a-z0-9-]+/g, "")
+    .replace(/^-+|-+$/g, "") || "proj";
+  return makeUniqueProjectId(`proj-${normalized}`, existingIds);
+}
+
+function normalizeProjectList(projects, existingIds = new Set()) {
+  const seenKeys = new Set();
+  const normalized = [];
+
+  for (const project of Array.isArray(projects) ? projects : []) {
+    const name = String(project?.name || "").trim();
+    if (!name) continue;
+
+    let id = typeof project.id === "string" && project.id.trim() ? safeProjectId(project.id) : "";
+    if (!id) {
+      id = makeProjectId(name, existingIds);
+    } else {
+      id = makeUniqueProjectId(id, existingIds);
+    }
+
+    const key = `${name.toLowerCase()}|${id}`;
+    if (seenKeys.has(key)) continue;
+    seenKeys.add(key);
+    normalized.push({ ...project, id, name });
+  }
+
+  return normalized;
+}
+
+function mergeProjectLists(existingProjects, importedProjects) {
+  const usedIds = new Set();
+  const merged = normalizeProjectList(existingProjects, usedIds);
+  const existingNames = new Set(merged.map((p) => p.name.toLowerCase()));
+
+  for (const project of normalizeProjectList(importedProjects, usedIds)) {
+    if (!existingNames.has(project.name.toLowerCase())) {
+      merged.push(project);
+      existingNames.add(project.name.toLowerCase());
+    }
+  }
+
+  return merged;
+}
+
 async function loadProjectsDb() {
   const readFromFile = async (filePath) => {
     if (!existsSync(filePath)) return null;
@@ -76,12 +156,24 @@ async function loadProjectsDb() {
   };
 
   const primary = await readFromFile(PROJECTS_DB_PATH);
-  if (primary !== null) return primary;
+  if (primary !== null) {
+    const normalized = primary.map((entry) => ({
+      ...entry,
+      projects: normalizeProjectList(entry.projects || []),
+    }));
+    await saveProjectsDb(normalized);
+    return normalized;
+  }
 
   const backup = await readFromFile(PROJECTS_BACKUP_PATH);
   if (backup !== null) {
-    await writeFile(PROJECTS_DB_PATH, JSON.stringify(backup, null, 2), "utf8");
-    return backup;
+    const normalized = backup.map((entry) => ({
+      ...entry,
+      projects: normalizeProjectList(entry.projects || []),
+    }));
+    await writeFile(PROJECTS_DB_PATH, JSON.stringify(normalized, null, 2), "utf8");
+    await writeFile(PROJECTS_BACKUP_PATH, JSON.stringify(normalized, null, 2), "utf8");
+    return normalized;
   }
 
   return [];
@@ -108,6 +200,8 @@ async function loadProjectsFromDataFiles() {
   }
 
   const projects = [];
+  const existingIds = new Set();
+
   for (const file of files) {
     const path = resolve(PROJECT_ROOT, "data", file);
     try {
@@ -148,7 +242,7 @@ async function loadProjectsFromDataFiles() {
         });
       if (convertedTasks.length > 0) {
         projects.push({
-          id: `proj-${name.replace(/[^a-z0-9]+/gi, "-").replace(/^-+|-+$/g, "").toLowerCase()}`,
+          id: makeProjectId(name, existingIds),
           name,
           scale: "week",
           visualScale: 1,
@@ -170,16 +264,27 @@ async function loadProjectsFromDataFiles() {
 async function getProjectsForAccount(accountId) {
   const entries = await loadProjectsDb();
   const entry = entries.find((item) => item.accountId === accountId);
-  if (entry?.projects?.length) return entry.projects;
-
-  const fallback = entries.find((item) => Array.isArray(item.projects) && item.projects.length > 0);
-  if (fallback?.projects?.length) return fallback.projects;
-
   const importedProjects = await loadProjectsFromDataFiles();
+
+  if (entry?.projects?.length) {
+    const savedProjects = normalizeProjectList(entry.projects);
+    if (importedProjects.length > 0) {
+      const merged = mergeProjectLists(savedProjects, importedProjects);
+      if (merged.length !== savedProjects.length) {
+        await saveProjectsForAccount(accountId, merged);
+        return merged;
+      }
+    }
+    return savedProjects;
+  }
+
   if (importedProjects.length > 0) {
     await saveProjectsForAccount(accountId, importedProjects);
     return importedProjects;
   }
+
+  const fallback = entries.find((item) => Array.isArray(item.projects) && item.projects.length > 0);
+  if (fallback?.projects?.length) return normalizeProjectList(fallback.projects);
 
   return [];
 }
