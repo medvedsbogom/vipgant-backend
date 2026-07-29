@@ -1,0 +1,160 @@
+[{
+  "version": "1.0",
+  "image": {
+    "name": "/var/www/vhosts/onlineconvert.com/onlineconvert.convertserver.com/run/2fd34f68911ed293d8b43cf73ff7a7e1/0KPQvdC40LLQtdGA0YHQuNGC0LXRgtGB0LrQuNC5XzYw_6a6225e15d8b6.pdf",
+    "baseName": "0KPQvdC40LLQtdGA0YHQuNGC0LXRgtGB0LrQuNC5XzYw_6a6225e15d8b6.pdf",
+    "permissions": 644,
+    "format": "PDF",
+    "formatDescription": "Portable Document Format",
+    "mimeType": "application/pdf",
+    "class": "DirectClass",
+    "geometry": {
+      "width": 827,
+      "height": 1169,
+      "x": 0,
+      "y": 0
+    },
+    "resolution": {
+      "x": 100,
+      "y": 100
+    },
+    "printSize": {
+      "x": 8.27,
+      "y": 11.69
+    },
+    "units": "Undefined",
+    "type": "Bilevel",
+    "baseType": "TrueColorAlpha",
+    "endianness": "Undefined",
+    "colorspace": "sRGB",
+    "depth": 8,
+    "baseDepth": 16,
+    "channelDepth": {
+      "alpha": 8,
+      "red": 1,
+      "green": 1,
+      "blue": 8
+    },
+    "pixels": 966763,
+    "imageStatistics": {
+      "Overall": {
+        "min": 0,
+        "max": 65535,
+        "mean": 49029.1,
+        "median": 49151.2,
+        "standardDeviation": 3353.44,
+        "kurtosis": 375.569,
+        "skewness": -7.6866,
+        "entropy": 0.0251261
+      }
+    },
+    "channelStatistics": {
+      "alpha": {
+        "min": 0,
+        "max": 65535,
+        "mean": 120.101,
+        "median": 0,
+        "standardDeviation": 2491.45,
+        "kurtosis": 548.243,
+        "skewness": 22.9201,
+        "entropy": 0.00970878
+      },
+      "red": {
+        "min": 0,
+        "max": 65535,
+        "mean": 65332.1,
+        "median": 65535,
+        "standardDeviation": 3640.77,
+        "kurtosis": 318.01,
+        "skewness": -17.8888,
+        "entropy": 0.0302651
+      },
+      "green": {
+        "min": 0,
+        "max": 65535,
+        "mean": 65332.1,
+        "median": 65535,
+        "standardDeviation": 3640.77,
+        "kurtosis": 318.01,
+        "skewness": -17.8888,
+        "entropy": 0.0302651
+      },
+      "blue": {
+        "min": 0,
+        "max": 65535,
+        "mean": 65332.1,
+        "median": 65535,
+        "standardDeviation": 3640.77,
+        "kurtosis": 318.01,
+        "skewness": -17.8888,
+        "entropy": 0.0302651
+      }
+    },
+    "alpha": "#FFFFFFFFFFFF0000",
+    "renderingIntent": "Perceptual",
+    "gamma": 0.454545,
+    "chromaticity": {
+      "redPrimary": {
+        "x": 0.64,
+        "y": 0.33
+      },
+      "greenPrimary": {
+        "x": 0.3,
+        "y": 0.6
+      },
+      "bluePrimary": {
+        "x": 0.15,
+        "y": 0.06
+      },
+      "whitePrimary": {
+        "x": 0.3127,
+        "y": 0.329
+      }
+    },
+    "matteColor": "#BDBDBDBDBDBD",
+    "backgroundColor": "#FFFFFFFFFFFF",
+    "borderColor": "#DFDFDFDFDFDF",
+    "transparentColor": "#000000000000",
+    "interlace": "None",
+    "intensity": "Undefined",
+    "compose": "Over",
+    "pageGeometry": {
+      "width": 827,
+      "height": 1169,
+      "x": 0,
+      "y": 0
+    },
+    "dispose": "Undefined",
+    "iterations": 0,
+    "scene": 8,
+    "scenes": 11,
+    "compression": "Undefined",
+    "orientation": "Undefined",
+    "properties": {
+      "date:create": "2026-07-23T14:32:03+00:00",
+      "date:modify": "2026-07-23T14:32:03+00:00",
+      "date:timestamp": "2026-07-23T14:32:03+00:00",
+      "pdf:HiResBoundingBox": "595.304x841.89+0+0",
+      "pdf:PDFVersion": "1.7",
+      "pdf:Producer": "LibreOffice 26.2.4.2 (X86_64)",
+      "pdf:Version": "PDF-1.7",
+      "signature": "9abb26dd549dcc7cbf8233e24dd16a1036a2714dbc672ba733a3d583dac4d37a",
+      "xmp:CreateDate": "2026-07-23T14:32:02Z",
+      "xmp:CreatorTool": "Calc",
+      "xmp:MetadataDate": "2026-07-23T14:32:02Z",
+      "xmp:ModifyDate": "2026-07-23T14:32:02Z"
+    },
+    "profiles": {
+      "xmp": {
+        "length": 4933
+      }
+    },
+    "tainted": false,
+    "filesize": "4075B",
+    "numberPixels": "966763",
+    "pixelsPerSecond": "872353B",
+    "userTime": "1.270u",
+    "elapsedTime": "0:02.108",
+    "version": "ImageMagick 7.1.2-27 (Beta) Q16-HDRI x86_64 38ba210c5:20260621 https://imagemagick.org"
+  }
+},
