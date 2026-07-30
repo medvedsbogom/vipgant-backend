@@ -5,6 +5,7 @@ import { existsSync, statSync } from "node:fs";
 import { dirname, resolve, join } from "node:path";
 import { randomUUID } from "node:crypto";
 import { fileURLToPath } from "node:url";
+import logger from "./logger.js";
 
 // ── Paths ─────────────────────────────────────────────────────────────────────
 const __dirname = dirname(fileURLToPath(import.meta.url));
@@ -357,7 +358,7 @@ for (const candidate of distCandidates) {
   }
 }
 if (distDir) {
-  console.log(`🔸 Serving static from ${distDir}`);
+  logger.info(`🔸 Serving static from ${distDir}`);
   app.use(express.static(distDir));
 }
 
@@ -652,16 +653,16 @@ app.post("/api/projects", async (req, res) => {
 // START
 // ──────────────────────────────────────────────────────────────────────────────
 const server = app.listen(PORT, () => {
-  console.log(`✅ VIP Gantt API server running on port ${PORT}`);
-  console.log(`   Health check: http://localhost:${PORT}/`);
+  logger.info(`✅ VIP Gantt API server running on port ${PORT}`);
+  logger.info(`   Health check: http://localhost:${PORT}/`);
 });
 
 server.on("error", (err) => {
   if (err && typeof err === "object" && "code" in err && err.code === "EADDRINUSE") {
-    console.warn(`⚠️ Port ${PORT} is already in use. Another server instance is already running.`);
+    logger.warn(`⚠️ Port ${PORT} is already in use. Another server instance is already running.`);
     process.exit(0);
   }
-  console.error(err);
+  logger.error(typeof err === "object" && err ? JSON.stringify(err) : String(err));
   process.exit(1);
 });
 
@@ -672,4 +673,18 @@ app.get("/", (_req, res) => {
     return;
   }
   res.json({ status: "ok", uptime: process.uptime() });
+});
+
+// POST /api/logs/client — клиент может отправлять ошибки/логи сюда
+app.post("/api/logs/client", (req, res) => {
+  try {
+    const { level = "error", message = "client-log", extra } = req.body || {};
+    const text = typeof message === "string" ? message : JSON.stringify(message);
+    const extraText = extra ? ` | extra: ${JSON.stringify(extra)}` : "";
+    logger.log({ level: level === "warn" ? "warn" : level === "info" ? "info" : "error", message: text + extraText });
+    res.json({ ok: true });
+  } catch (err) {
+    logger.error("Failed to write client log: " + (err && err.message ? err.message : String(err)));
+    res.status(500).json({ error: "failed" });
+  }
 });
