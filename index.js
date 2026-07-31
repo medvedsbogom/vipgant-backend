@@ -1,5 +1,6 @@
 import express from "express";
 import cors from "cors";
+import bcrypt from "bcrypt";
 import { readFile, writeFile, mkdir, readdir } from "node:fs/promises";
 import { existsSync, statSync } from "node:fs";
 import { dirname, resolve, join } from "node:path";
@@ -38,24 +39,81 @@ function stripBom(text) {
   return typeof text === "string" && text.charAt(0) === "\uFEFF" ? text.slice(1) : text;
 }
 
+async function hashPassword(password) {
+  return bcrypt.hash(String(password || ""), 10);
+}
+
+async function verifyPassword(password, passwordHash) {
+  if (!passwordHash) return String(password || "") === "" ? false : false;
+  if (typeof passwordHash === "string" && passwordHash.startsWith("$2")) {
+    return bcrypt.compare(String(password || ""), passwordHash);
+  }
+  return String(password || "") === String(passwordHash || "");
+}
+
+async function normalizeAuthAccounts(accounts) {
+  const list = Array.isArray(accounts) ? accounts : [];
+  const next = [];
+  for (const account of list) {
+    if (!account || typeof account !== "object") continue;
+    const normalized = { ...account };
+    if (!normalized.passwordHash && normalized.password) {
+      normalized.passwordHash = await hashPassword(normalized.password);
+    }
+    delete normalized.password;
+    next.push(normalized);
+  }
+  return next;
+}
+
 // ── Helpers ────────────────────────────────────────────────────────────────────
 let presenceRecords = new Map(); // accountId -> { lastSeen, name, initials, ... }
 let presenceEvents = [];
 let nextPresenceEventId = 1;
 const PRESENCE_TTL_MS = 25000;
 const PRESENCE_MAX_EVENTS = 40;
+const DEFAULT_BOOT_ACCOUNTS = [
+  { id: "admin", name: "Администратор", email: "admin", password: "admin", initials: "AD", color: "#007bff", themeColor: "#007bff", photoUrl: "", role: "Администратор", createdAt: Date.now() },
+  { id: "midan", name: "Гость", email: "midan", password: "midan", initials: "GV", color: "#34a853", themeColor: "#34a853", photoUrl: "", role: "Гость", createdAt: Date.now() },
+];
+
+function mergeSeedAccounts(accounts) {
+  const seen = new Map();
+  const merged = Array.isArray(accounts) ? accounts : [];
+  for (const entry of merged) {
+    if (entry?.id) seen.set(entry.id, entry);
+  }
+  for (const seed of DEFAULT_BOOT_ACCOUNTS) {
+    if (!seen.has(seed.id)) {
+      merged.push(seed);
+      seen.set(seed.id, seed);
+    }
+  }
+  return merged;
+}
 
 async function ensureAuthDb() {
   if (!existsSync(DATA_DIR)) await mkdir(DATA_DIR, { recursive: true });
   if (!existsSync(AUTH_DB_PATH)) {
-    await writeFile(AUTH_DB_PATH, JSON.stringify([], null, 2), "utf8");
-    return [];
+    const seeded = mergeSeedAccounts([]);
+    const normalized = await normalizeAuthAccounts(seeded);
+    await writeFile(AUTH_DB_PATH, JSON.stringify(normalized, null, 2), "utf8");
+    return normalized;
   }
   try {
     const text = await readFile(AUTH_DB_PATH, "utf8");
-    return JSON.parse(text);
+    const parsed = JSON.parse(text);
+    const merged = mergeSeedAccounts(parsed);
+    const normalized = await normalizeAuthAccounts(merged);
+    if (JSON.stringify(normalized) !== JSON.stringify(parsed)) {
+      await saveAuthDb(normalized);
+    }
+    return normalized;
   } catch {
-    return [];
+    const seeded = mergeSeedAccounts([]);
+    const normalized = await normalizeAuthAccounts(seeded);
+    await writeFile(AUTH_DB_PATH, JSON.stringify(normalized, null, 2), "utf8");
+    return normalized;
   }
 }
 
@@ -269,28 +327,70 @@ async function loadProjectsFromDataFiles() {
 
 async function getProjectsForAccount(accountId) {
   const entries = await loadProjectsDb();
-  const entry = entries.find((item) => item.accountId === accountId);
+  const normalizedAccountId = String(accountId || "").trim();
   const importedProjects = await loadProjectsFromDataFiles();
 
-  if (entry?.projects?.length) {
-    const savedProjects = normalizeProjectList(entry.projects);
-    if (importedProjects.length > 0) {
-      const merged = mergeProjectLists(savedProjects, importedProjects);
-      if (merged.length !== savedProjects.length) {
-        await saveProjectsForAccount(accountId, merged);
-        return merged;
-      }
+  const allProjectRecords = [];
+  for (const entry of entries) {
+    for (const project of Array.isArray(entry.projects) ? entry.projects : []) {
+      const ownerId = String(project.ownerId || entry.accountId || "").trim();
+      const withMembers = {
+        ...project,
+        ownerId,
+        members: normalizeProjectMembers(project.members, ownerId),
+      };
+      allProjectRecords.push(withMembers);
     }
-    return savedProjects;
+  }
+
+  const visibleProjects = allProjectRecords.filter((project) => {
+    const ownerId = String(project.ownerId || "").trim();
+    const members = Array.isArray(project.members) ? project.members : [];
+    return ownerId === normalizedAccountId || members.some((member) => member.id === normalizedAccountId);
+  });
+
+  const decorateProject = (project) => {
+    const ownerId = String(project.ownerId || "").trim();
+    const members = normalizeProjectMembers(project.members, ownerId);
+    const memberRecord = members.find((member) => member.id === normalizedAccountId);
+    const isOwner = ownerId === normalizedAccountId;
+
+    return {
+      ...project,
+      ownerId,
+      members,
+      isOwner,
+      role: isOwner ? "Владелец" : memberRecord?.role || "Редактор",
+    };
+  };
+
+  if (visibleProjects.length > 0) {
+    const canonical = normalizeProjectList(visibleProjects);
+    if (importedProjects.length > 0) {
+      const merged = mergeProjectLists(canonical, importedProjects);
+      await saveProjectsForAccount(normalizedAccountId, merged);
+      return normalizeProjectList(merged.map((project) => decorateProject({
+        ...project,
+        ownerId: project.ownerId || normalizedAccountId,
+        members: normalizeProjectMembers(project.members, project.ownerId || normalizedAccountId),
+      })));
+    }
+    return normalizeProjectList(canonical.map((project) => decorateProject({
+      ...project,
+      ownerId: project.ownerId || normalizedAccountId,
+      members: normalizeProjectMembers(project.members, project.ownerId || normalizedAccountId),
+    })));
   }
 
   if (importedProjects.length > 0) {
-    await saveProjectsForAccount(accountId, importedProjects);
-    return importedProjects;
+    const seeded = importedProjects.map((project) => ({
+      ...project,
+      ownerId: normalizedAccountId,
+      members: normalizeProjectMembers(project.members, normalizedAccountId),
+    }));
+    await saveProjectsForAccount(normalizedAccountId, seeded);
+    return normalizeProjectList(seeded.map((project) => decorateProject(project)));
   }
-
-  const fallback = entries.find((item) => Array.isArray(item.projects) && item.projects.length > 0);
-  if (fallback?.projects?.length) return normalizeProjectList(fallback.projects);
 
   return [];
 }
@@ -300,7 +400,14 @@ async function saveProjectsForAccount(accountId, projects) {
   const index = entries.findIndex((item) => item.accountId === accountId);
   const existingEntry = index >= 0 ? entries[index] : null;
   const existingProjects = Array.isArray(existingEntry?.projects) ? existingEntry.projects : [];
-  const nextProjects = Array.isArray(projects) && projects.length > 0 ? projects : existingProjects;
+  const nextProjects = Array.isArray(projects) && projects.length > 0
+    ? projects.map((project) => ({
+        ...project,
+        ownerId: String(project.ownerId || accountId || "").trim() || accountId,
+        members: normalizeProjectMembers(project.members, project.ownerId || accountId),
+      }))
+    : existingProjects;
+
   const nextEntry = { accountId, projects: nextProjects };
   if (index === -1) entries.push(nextEntry);
   else entries[index] = nextEntry;
@@ -308,8 +415,35 @@ async function saveProjectsForAccount(accountId, projects) {
   return nextEntry;
 }
 
+function normalizeProjectMembers(projectMembers = [], fallbackOwnerId = "") {
+  const seen = new Set();
+  const normalized = [];
+  const ownerId = String(fallbackOwnerId || "").trim();
+
+  if (ownerId) {
+    normalized.push({ id: ownerId, role: "Владелец", name: "", email: "" });
+    seen.add(ownerId);
+  }
+
+  for (const member of Array.isArray(projectMembers) ? projectMembers : []) {
+    const id = String(member?.id || "").trim();
+    const role = String(member?.role || "Редактор").trim();
+    if (!id || seen.has(id)) continue;
+    seen.add(id);
+    normalized.push({
+      id,
+      role: ROLES.includes(role) ? role : "Редактор",
+      name: String(member?.name || "").trim(),
+      email: String(member?.email || "").trim(),
+      joinedAt: typeof member?.joinedAt === "number" ? member.joinedAt : Date.now(),
+    });
+  }
+
+  return normalized;
+}
+
 function toPublicAccount(account) {
-  const { password, ...publicAccount } = account;
+  const { password, passwordHash, ...publicAccount } = account;
   return publicAccount;
 }
 
@@ -385,29 +519,30 @@ app.post("/api/auth/register", async (req, res) => {
     }
 
     const accounts = await ensureAuthDb();
-    const normalizedEmail = email.trim().toLowerCase();
+    const normalizedEmail = String(email || "").trim().toLowerCase();
 
-    if (accounts.some((a) => a.email.toLowerCase() === normalizedEmail)) {
+    if (accounts.some((a) => String(a.email || "").toLowerCase() === normalizedEmail)) {
       return res.status(409).json({ error: "Пользователь с таким email уже существует." });
     }
 
+    const passwordHash = await hashPassword(password);
     const newAccount = {
       id: randomUUID(),
-      name: name.trim(),
+      name: String(name || "").trim(),
       email: normalizedEmail,
-      password: password, // В реальном проекте используйте bcrypt!
+      passwordHash,
       initials: makeInitials(name),
       color: COLORS[accounts.length % COLORS.length],
       themeColor: themeColor || COLORS[accounts.length % COLORS.length],
       photoUrl: photoUrl || "",
       role: "Редактор",
       createdAt: Date.now(),
+      lastLoginClientId: clientId || "",
     };
 
     accounts.push(newAccount);
     await saveAuthDb(accounts);
 
-    // При регистрации отмечаем присутствие
     presenceRecords.set(newAccount.id, {
       ...newAccount,
       lastSeen: Date.now(),
@@ -428,20 +563,21 @@ app.post("/api/auth/login", async (req, res) => {
     }
 
     const accounts = await ensureAuthDb();
-    const normalizedEmail = email.trim().toLowerCase();
-    const account = accounts.find(
-      (a) => a.email.toLowerCase() === normalizedEmail && a.password === password
-    );
+    const normalizedEmail = String(email || "").trim().toLowerCase();
+    const account = accounts.find((a) => String(a.email || "").toLowerCase() === normalizedEmail);
 
     if (!account) {
       return res.status(401).json({ error: "Неверный email или пароль." });
     }
 
-    // Обновляем lastLogin
+    const passwordMatches = await verifyPassword(password, account.passwordHash || account.password);
+    if (!passwordMatches) {
+      return res.status(401).json({ error: "Неверный email или пароль." });
+    }
+
     account.lastLoginClientId = clientId || "";
     await saveAuthDb(accounts);
 
-    // Отмечаем присутствие
     presenceRecords.set(account.id, {
       ...account,
       lastSeen: Date.now(),
@@ -510,8 +646,8 @@ app.post("/api/auth/role", async (req, res) => {
       return res.status(404).json({ error: "Пользователь не найден." });
     }
 
-    if (!["Владелец", "Создатель"].includes(actor.role)) {
-      return res.status(403).json({ error: "Только владелец или создатель может назначать роли." });
+    if (!["Владелец", "Создатель", "Администратор"].includes(actor.role)) {
+      return res.status(403).json({ error: "Только владелец, создатель или администратор может назначать роли." });
     }
 
     accounts[targetIndex].role = role;
@@ -630,6 +766,237 @@ app.get("/api/projects", async (req, res) => {
     }
     const projects = await getProjectsForAccount(accountId);
     res.json({ projects });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// GET /api/projects/:projectId/members — список участников проекта
+app.get("/api/projects/:projectId/members", async (req, res) => {
+  try {
+    const { projectId } = req.params;
+    const entries = await loadProjectsDb();
+    const project = entries.flatMap((entry) => Array.isArray(entry.projects) ? entry.projects : []).find((item) => item.id === projectId);
+    if (!project) {
+      return res.status(404).json({ error: "Проект не найден." });
+    }
+
+    const ownerId = String(project.ownerId || "").trim();
+    const members = normalizeProjectMembers(project.members, ownerId);
+    const accounts = await ensureAuthDb();
+    const membersWithProfiles = members.map((member) => {
+      const account = accounts.find((item) => item.id === member.id);
+      return {
+        ...member,
+        name: member.name || account?.name || member.id,
+        email: member.email || account?.email || "",
+      };
+    });
+
+    res.json({ members: membersWithProfiles, ownerId });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// POST /api/projects/:projectId/invite — приглашение участника по email
+app.post("/api/projects/:projectId/invite", async (req, res) => {
+  try {
+    const { projectId } = req.params;
+    const { actorId, email, role = "Редактор" } = req.body;
+    if (!actorId || !email || !role) {
+      return res.status(400).json({ error: "Ожидаются actorId, email и role." });
+    }
+    if (!ROLES.includes(role)) {
+      return res.status(400).json({ error: "Недопустимая роль участника." });
+    }
+
+    const accounts = await ensureAuthDb();
+    const actor = accounts.find((account) => account.id === actorId);
+    if (!actor) {
+      return res.status(404).json({ error: "Инициатор не найден." });
+    }
+
+    const target = accounts.find((account) => String(account.email || "").toLowerCase() === String(email || "").trim().toLowerCase());
+    if (!target) {
+      return res.status(404).json({ error: "Пользователь с таким email не найден." });
+    }
+
+    const entries = await loadProjectsDb();
+    let updatedProject = null;
+    let isAllowed = false;
+
+    for (const entry of entries) {
+      const nextProjects = (Array.isArray(entry.projects) ? entry.projects : []).map((project) => {
+        if (project.id !== projectId) return project;
+
+        const ownerId = String(project.ownerId || entry.accountId || "").trim();
+        const members = normalizeProjectMembers(project.members, ownerId);
+        const actorIsOwner = ownerId === actorId;
+        const actorIsAdmin = members.some((member) => member.id === actorId && ["Владелец", "Создатель", "Администратор"].includes(member.role));
+        if (!actorIsOwner && !actorIsAdmin) {
+          isAllowed = false;
+          return project;
+        }
+
+        isAllowed = true;
+        const foundMemberIndex = members.findIndex((member) => member.id === target.id);
+        if (foundMemberIndex >= 0) {
+          members[foundMemberIndex] = { ...members[foundMemberIndex], role, name: target.name, email: target.email };
+        } else {
+          members.push({ id: target.id, role, name: target.name, email: target.email, joinedAt: Date.now() });
+        }
+
+        updatedProject = { ...project, ownerId, members };
+        return { ...project, ownerId, members };
+      });
+
+      entry.projects = nextProjects;
+    }
+
+    if (!isAllowed) {
+      return res.status(403).json({ error: "Только владелец или администратор проекта может приглашать участников." });
+    }
+
+    await saveProjectsDb(entries);
+    res.json({ ok: true, project: updatedProject });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// DELETE /api/projects/:projectId/members/:userId — удалить участника проекта
+app.delete("/api/projects/:projectId/members/:userId", async (req, res) => {
+  try {
+    const { projectId, userId } = req.params;
+    const { actorId } = req.body || {};
+    if (!actorId) {
+      return res.status(400).json({ error: "Ожидается actorId." });
+    }
+
+    const accounts = await ensureAuthDb();
+    const actor = accounts.find((account) => account.id === actorId);
+    if (!actor) {
+      return res.status(404).json({ error: "Инициатор не найден." });
+    }
+
+    const entries = await loadProjectsDb();
+    let updatedProject = null;
+    let allowed = false;
+
+    for (const entry of entries) {
+      const nextProjects = (Array.isArray(entry.projects) ? entry.projects : []).map((project) => {
+        if (project.id !== projectId) return project;
+        const ownerId = String(project.ownerId || entry.accountId || "").trim();
+        const members = normalizeProjectMembers(project.members, ownerId);
+        const actorIsOwner = ownerId === actorId;
+        const actorIsAdmin = members.some((member) => member.id === actorId && ["Владелец", "Создатель", "Администратор"].includes(member.role));
+        if (!actorIsOwner && !actorIsAdmin) {
+          return project;
+        }
+
+        allowed = true;
+        const nextMembers = members.filter((member) => member.id !== userId);
+        updatedProject = { ...project, ownerId, members: nextMembers };
+        return { ...project, ownerId, members: nextMembers };
+      });
+
+      entry.projects = nextProjects;
+    }
+
+    if (!allowed) {
+      return res.status(403).json({ error: "Только владелец или администратор проекта может удалять участников." });
+    }
+
+    await saveProjectsDb(entries);
+    res.json({ ok: true, project: updatedProject });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// POST /api/projects/members — управление участниками проекта
+app.post("/api/projects/members", async (req, res) => {
+  try {
+    const { actorId, projectId, targetId, role, action = "add" } = req.body;
+    if (!actorId || !projectId || !targetId || !action) {
+      return res.status(400).json({ error: "Ожидаются actorId, projectId, targetId и action." });
+    }
+
+    if (!ROLES.includes(role || "Редактор")) {
+      return res.status(400).json({ error: "Недопустимая роль участника." });
+    }
+
+    const accounts = await ensureAuthDb();
+    const actor = accounts.find((account) => account.id === actorId);
+    const target = accounts.find((account) => account.id === targetId);
+    if (!actor || !target) {
+      return res.status(404).json({ error: "Участник или инициатор не найден." });
+    }
+
+    const entries = await loadProjectsDb();
+    let updatedProject = null;
+    let allowed = false;
+
+    for (const entry of entries) {
+      const nextProjects = (Array.isArray(entry.projects) ? entry.projects : []).map((project) => {
+        if (project.id !== projectId) return project;
+
+        const ownerId = String(project.ownerId || entry.accountId || "").trim();
+        const members = normalizeProjectMembers(project.members, ownerId);
+        const actorIsOwner = ownerId === actorId;
+        const actorProjectMember = members.find((member) => member.id === actorId);
+        const actorIsAdmin = ["Владелец", "Создатель", "Администратор"].includes(actorProjectMember?.role || "");
+
+        if (!actorIsOwner && !actorIsAdmin) {
+          return project;
+        }
+
+        allowed = true;
+        const foundMemberIndex = members.findIndex((member) => member.id === targetId);
+
+        if (action === "remove") {
+          const nextMembers = members.filter((member) => member.id !== targetId);
+          updatedProject = { ...project, ownerId, members: nextMembers };
+          return { ...project, ownerId, members: nextMembers };
+        }
+
+        if (action === "role") {
+          if (foundMemberIndex === -1) {
+            return project;
+          }
+          const nextMembers = members.map((member) => member.id === targetId ? { ...member, role } : member);
+          updatedProject = { ...project, ownerId, members: nextMembers };
+          return { ...project, ownerId, members: nextMembers };
+        }
+
+        if (foundMemberIndex >= 0) {
+          members[foundMemberIndex] = { ...members[foundMemberIndex], role, name: target.name, email: target.email };
+          updatedProject = { ...project, ownerId, members };
+          return { ...project, ownerId, members };
+        }
+
+        members.push({
+          id: target.id,
+          role,
+          name: target.name,
+          email: target.email,
+          joinedAt: Date.now(),
+        });
+
+        updatedProject = { ...project, ownerId, members };
+        return { ...project, ownerId, members };
+      });
+
+      entry.projects = nextProjects;
+    }
+
+    if (!allowed) {
+      return res.status(403).json({ error: "Только владелец или администратор проекта может управлять участниками." });
+    }
+
+    await saveProjectsDb(entries);
+    res.json({ ok: true, project: updatedProject });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
