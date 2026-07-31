@@ -11,7 +11,17 @@
         "dependencies": [],
         "resources": [],
         "templates": [],
-        "archived": false
+        "archived": false,
+        "resourceAssignments": [],
+        "ownerId": "admin",
+        "members": [
+          {
+            "id": "admin",
+            "role": "Владелец",
+            "name": "",
+            "email": ""
+          }
+        ]
       },
       {
         "id": "proj-arbat",
@@ -601,7 +611,17 @@
         "dependencies": [],
         "resources": [],
         "templates": [],
-        "archived": false
+        "archived": false,
+        "resourceAssignments": [],
+        "ownerId": "admin",
+        "members": [
+          {
+            "id": "admin",
+            "role": "Владелец",
+            "name": "",
+            "email": ""
+          }
+        ]
       },
       {
         "id": "proj-bereg-volgi",
@@ -1055,7 +1075,17 @@
         "dependencies": [],
         "resources": [],
         "templates": [],
-        "archived": false
+        "archived": false,
+        "resourceAssignments": [],
+        "ownerId": "admin",
+        "members": [
+          {
+            "id": "admin",
+            "role": "Владелец",
+            "name": "",
+            "email": ""
+          }
+        ]
       },
       {
         "id": "proj-level-ap47",
@@ -1118,8 +1148,27 @@
             "id": 4,
             "type": "task",
             "name": "Черновая электрика",
-            "assignees": [],
-            "resourceIds": [],
+            "assignees": [
+              {
+                "name": "нкенкен",
+                "initials": "Н",
+                "color": "#007bff"
+              },
+              {
+                "name": "Гость",
+                "initials": "GV",
+                "color": "#34a853"
+              },
+              {
+                "name": "кенкенк",
+                "initials": "К",
+                "color": "#007bff"
+              }
+            ],
+            "resourceIds": [
+              "res-e6078ae2-ec6e-4fc9-92ae-c45584360d6a",
+              "res-71f470c4-2828-4f85-8bf4-d96a665c0259"
+            ],
             "priority": "medium",
             "budget": 0,
             "comments": "",
@@ -1577,7 +1626,30 @@
         "dependencies": [],
         "resources": [],
         "templates": [],
-        "archived": false
+        "archived": false,
+        "resourceAssignments": [
+          {
+            "id": "ra-fa7d3fc8-3a16-4295-8066-87be560c4f6a",
+            "taskId": 4,
+            "resourceId": "res-e6078ae2-ec6e-4fc9-92ae-c45584360d6a",
+            "quantity": 1
+          },
+          {
+            "id": "ra-9a3096e4-26ad-4bd2-86a0-4e689793b36d",
+            "taskId": 4,
+            "resourceId": "res-71f470c4-2828-4f85-8bf4-d96a665c0259",
+            "quantity": 1
+          }
+        ],
+        "ownerId": "admin",
+        "members": [
+          {
+            "id": "admin",
+            "role": "Владелец",
+            "name": "",
+            "email": ""
+          }
+        ]
       },
       {
         "id": "proj-3c538c7e-6627-4275-b13d-4e86d89fe5eb",
@@ -1612,8 +1684,8 @@
             "budget": 0,
             "comments": "",
             "attachments": [],
-            "start": "2026-07-26",
-            "end": "2026-07-30",
+            "start": "2026-07-27",
+            "end": "2026-07-31",
             "progress": 0,
             "status": "not_started",
             "barColor": "#6b7280",
@@ -1657,7 +1729,17 @@
         "dependencies": [],
         "resources": [],
         "templates": [],
-        "archived": false
+        "archived": false,
+        "resourceAssignments": [],
+        "ownerId": "admin",
+        "members": [
+          {
+            "id": "admin",
+            "role": "Владелец",
+            "name": "",
+            "email": ""
+          }
+        ]
       }
     ]
   }
