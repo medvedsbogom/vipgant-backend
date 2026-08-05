@@ -18,7 +18,7 @@ const PROJECTS_BACKUP_PATH = resolve(DATA_DIR, "projects-db.backup.json");
 
 // ── Types ──────────────────────────────────────────────────────────────────────
 /* Account roles mirroring frontend */
-const ROLES = ["Редактор", "Администратор", "Владелец", "Создатель"];
+const ROLES = ["Редактор", "Администратор", "Владелец", "Создатель", "Гость"];
 
 const COLORS = [
   "#1271e0", "#34a853", "#9c27b0", "#e91e63", "#ff6f00",
@@ -52,11 +52,13 @@ async function verifyPassword(password, passwordHash) {
 }
 
 async function normalizeAuthAccounts(accounts) {
-  const list = Array.isArray(accounts) ? accounts : [];
+  const list = (Array.isArray(accounts) ? accounts : []).filter((account) => account?.id === "admin" || account?.id === "midan");
   const next = [];
   for (const account of list) {
     if (!account || typeof account !== "object") continue;
     const normalized = { ...account };
+    if (normalized.id === "admin") normalized.role = "Владелец";
+    if (normalized.id === "midan") normalized.role = "Гость";
     if (!normalized.passwordHash && normalized.password) {
       normalized.passwordHash = await hashPassword(normalized.password);
     }
@@ -79,7 +81,7 @@ const DEFAULT_BOOT_ACCOUNTS = [
 
 function mergeSeedAccounts(accounts) {
   const seen = new Map();
-  const merged = Array.isArray(accounts) ? accounts : [];
+  const merged = (Array.isArray(accounts) ? accounts : []).filter((entry) => entry?.id === "admin" || entry?.id === "midan");
   for (const entry of merged) {
     if (entry?.id) seen.set(entry.id, entry);
   }
@@ -221,20 +223,22 @@ async function loadProjectsDb() {
 
   const primary = await readFromFile(PROJECTS_DB_PATH);
   if (primary !== null) {
-    const normalized = primary.map((entry) => ({
-      ...entry,
-      projects: normalizeProjectList(entry.projects || []),
-    }));
+      const normalized = primary.map((entry) => ({
+        ...entry,
+        projects: normalizeProjectList(entry.projects || []),
+        resources: Array.isArray(entry.resources) ? entry.resources : [],
+      }));
     await saveProjectsDb(normalized);
     return normalized;
   }
 
   const backup = await readFromFile(PROJECTS_BACKUP_PATH);
   if (backup !== null) {
-    const normalized = backup.map((entry) => ({
-      ...entry,
-      projects: normalizeProjectList(entry.projects || []),
-    }));
+      const normalized = backup.map((entry) => ({
+        ...entry,
+        projects: normalizeProjectList(entry.projects || []),
+        resources: Array.isArray(entry.resources) ? entry.resources : [],
+      }));
     await writeFile(PROJECTS_DB_PATH, JSON.stringify(normalized, null, 2), "utf8");
     await writeFile(PROJECTS_BACKUP_PATH, JSON.stringify(normalized, null, 2), "utf8");
     return normalized;
@@ -343,7 +347,9 @@ async function getProjectsForAccount(accountId) {
     }
   }
 
-  const visibleProjects = allProjectRecords.filter((project) => {
+  const visibleProjects = normalizedAccountId === "admin" || normalizedAccountId === "midan"
+    ? allProjectRecords
+    : allProjectRecords.filter((project) => {
     const ownerId = String(project.ownerId || "").trim();
     const members = Array.isArray(project.members) ? project.members : [];
     return ownerId === normalizedAccountId || members.some((member) => member.id === normalizedAccountId);
@@ -395,11 +401,12 @@ async function getProjectsForAccount(accountId) {
   return [];
 }
 
-async function saveProjectsForAccount(accountId, projects) {
+async function saveProjectsForAccount(accountId, projects, resources) {
   const entries = await loadProjectsDb();
   const index = entries.findIndex((item) => item.accountId === accountId);
   const existingEntry = index >= 0 ? entries[index] : null;
   const existingProjects = Array.isArray(existingEntry?.projects) ? existingEntry.projects : [];
+  const existingResources = Array.isArray(existingEntry?.resources) ? existingEntry.resources : [];
   const nextProjects = Array.isArray(projects) && projects.length > 0
     ? projects.map((project) => ({
         ...project,
@@ -408,7 +415,8 @@ async function saveProjectsForAccount(accountId, projects) {
       }))
     : existingProjects;
 
-  const nextEntry = { accountId, projects: nextProjects };
+  const nextResources = Array.isArray(resources) ? resources : existingResources;
+  const nextEntry = { accountId, projects: nextProjects, resources: nextResources };
   if (index === -1) entries.push(nextEntry);
   else entries[index] = nextEntry;
   await saveProjectsDb(entries);
@@ -513,6 +521,7 @@ app.get("/api/auth/accounts", async (_req, res) => {
 // POST /api/auth/register — регистрация
 app.post("/api/auth/register", async (req, res) => {
   try {
+    return res.status(403).json({ error: "Регистрация отключена. Доступны только admin и midan." });
     const { name, email, password, clientId, themeColor, photoUrl } = req.body;
     if (!name || !email || !password) {
       return res.status(400).json({ error: "Укажите имя, email и пароль." });
@@ -593,6 +602,9 @@ app.post("/api/auth/login", async (req, res) => {
 app.post("/api/auth/profile", async (req, res) => {
   try {
     const { id, name, themeColor, photoUrl, birthYear, birthDate, phone, city, about } = req.body;
+    if (id !== "admin") {
+      return res.status(403).json({ error: "Гостевой аккаунт доступен только для просмотра." });
+    }
     if (!id || !name) {
       return res.status(400).json({ error: "Передайте id и имя." });
     }
@@ -765,7 +777,21 @@ app.get("/api/projects", async (req, res) => {
       return res.json({ projects: [] });
     }
     const projects = await getProjectsForAccount(accountId);
-    res.json({ projects });
+    const entries = await loadProjectsDb();
+    const resourceEntries = accountId === "admin" || accountId === "midan"
+      ? entries
+      : entries.filter((entry) => entry.accountId === accountId);
+    const resources = resourceEntries.reduce((all, entry) => {
+      const next = Array.isArray(entry.resources) ? entry.resources : [];
+      const seen = new Set(all.map((resource) => String(resource?.id || resource?.name || "").toLowerCase()));
+      return [...all, ...next.filter((resource) => {
+        const key = String(resource?.id || resource?.name || "").toLowerCase();
+        if (!key || seen.has(key)) return false;
+        seen.add(key);
+        return true;
+      })];
+    }, []);
+    res.json({ projects, resources });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
@@ -804,6 +830,9 @@ app.post("/api/projects/:projectId/invite", async (req, res) => {
   try {
     const { projectId } = req.params;
     const { actorId, email, role = "Редактор" } = req.body;
+    if (actorId === "midan") {
+      return res.status(403).json({ error: "Гостевой аккаунт доступен только для просмотра." });
+    }
     if (!actorId || !email || !role) {
       return res.status(400).json({ error: "Ожидаются actorId, email и role." });
     }
@@ -870,6 +899,9 @@ app.delete("/api/projects/:projectId/members/:userId", async (req, res) => {
   try {
     const { projectId, userId } = req.params;
     const { actorId } = req.body || {};
+    if (actorId === "midan") {
+      return res.status(403).json({ error: "Гостевой аккаунт доступен только для просмотра." });
+    }
     if (!actorId) {
       return res.status(400).json({ error: "Ожидается actorId." });
     }
@@ -919,6 +951,9 @@ app.delete("/api/projects/:projectId/members/:userId", async (req, res) => {
 app.post("/api/projects/members", async (req, res) => {
   try {
     const { actorId, projectId, targetId, role, action = "add" } = req.body;
+    if (actorId === "midan") {
+      return res.status(403).json({ error: "Гостевой аккаунт доступен только для просмотра." });
+    }
     if (!actorId || !projectId || !targetId || !action) {
       return res.status(400).json({ error: "Ожидаются actorId, projectId, targetId и action." });
     }
@@ -1005,11 +1040,14 @@ app.post("/api/projects/members", async (req, res) => {
 // POST /api/projects — сохранение проектов аккаунта
 app.post("/api/projects", async (req, res) => {
   try {
-    const { accountId, projects } = req.body;
+    const { accountId, projects, resources } = req.body;
+    if (accountId === "midan") {
+      return res.status(403).json({ error: "Гостевой аккаунт доступен только для просмотра." });
+    }
     if (!accountId || !Array.isArray(projects)) {
       return res.status(400).json({ error: "Ожидаются accountId и массив projects." });
     }
-    await saveProjectsForAccount(accountId, projects);
+    await saveProjectsForAccount(accountId, projects, resources);
     res.json({ ok: true, count: projects.length, accountId });
   } catch (err) {
     res.status(500).json({ error: err.message });
